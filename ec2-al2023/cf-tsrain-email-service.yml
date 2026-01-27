@@ -158,7 +158,7 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          curl -s -L https://github.com/spearmin10/tsrain-standalone/blob/main/ec2-al2023/install/install.sh?raw=true | sudo TSRAIN_MAILBOX_PASSWORD="${InitialPassword}" bash
+          curl -s -L https://github.com/spearmin10/tsrain-email-service/blob/main/ec2-al2023/install/install.sh?raw=true | sudo TSRAIN_MAILBOX_PASSWORD="${InitialPassword}" bash
       Tags:
       - Key: Name
         Value: TSRAIN Email Service
@@ -234,3 +234,4 @@ Outputs:
     Description: "The public IP address of the TSRAIN Email Service"
     Export:
       Name: !Sub "${AWS::StackName}-TSRAIN-IP"
+
