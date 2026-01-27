@@ -1,0 +1,236 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "CloudFormation StackSet for deploying the TSRAIN Email Service"
+
+Parameters:
+  Subnet:
+    Type: AWS::EC2::Subnet::Id
+    Description: "Select the public subnet. VPC ID will be discovered automatically."
+    AllowedPattern: ".+"
+  InstanceType:
+    Type: String
+    Description: "The EC2 instance type for the Email Service VM."
+    AllowedValues: [t4g.nano, t4g.micro, t4g.small]
+    Default: "t4g.micro"
+  DisableIndividualPorts:
+    Type: String
+    Description: "If true, restricts access to port 443 only, disabling SMTP, IMAP, and other email ports."
+    AllowedValues: [true, false]
+    Default: "false"
+  InitialPassword:
+    Type: String
+    Description: "Optional: The default password for email accounts."
+    NoEcho: true
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: "Network Configuration"
+      Parameters:
+      - Subnet
+      - SecurityGroupID
+    - Label: 
+        default: "Amazon EC2 Configuration"
+      Parameters:
+      - InstanceType
+      - LatestAmiId
+      - AllowIndividualPorts
+    - Label:
+        default: "TSRAIN Email Service Configuration"
+      Parameters:
+      - InitialPassword
+    ParameterLabels:
+      Subnet:
+        default: "Target Public Subnet"
+      InstanceType:
+        default: "EC2 Instance Type"
+      LatestAmiId:
+        default: "Base Amazon Machine Image (AMI)"
+      DisableIndividualPorts:
+        default: "Diable Standard Email Ports (25, 80, 143, etc.)"
+      InitialPassword:
+        default: "Initial Password for Email Users"
+
+Conditions:
+  DisableIndividualPorts: !Equals [!Ref DisableIndividualPorts, "true"]
+
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DescribeSubnetsPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ec2:DescribeSubnets
+                Resource: "*"
+              - Effect: Allow
+                Action: logs:CreateLogGroup
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+              - Effect: Allow
+                Action: logs:CreateLogStream
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*"
+              - Effect: Allow
+                Action: logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*"
+
+  VpcLookupFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: python3.11
+      Timeout: 30
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          def handler(event, context):
+              try:
+                  if event['RequestType'] == 'Delete':
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                      return
+                  subnet_id = event['ResourceProperties']['SubnetId']
+                  ec2 = boto3.client('ec2')
+                  response = ec2.describe_subnets(SubnetIds=[subnet_id])
+                  vpc_id = response['Subnets'][0]['VpcId']
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {'VpcId': vpc_id})
+              except Exception as e:
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+
+  VpcLookup:
+    Type: Custom::VpcLookup
+    Properties:
+      ServiceToken: !GetAtt VpcLookupFunction.Arn
+      SubnetId: !Ref Subnet
+
+  EIPTsrain:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+      - Key: Name
+        Value: "TSRAIN Email Service EIP"
+
+  EIPAssocTsrain:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt EIPTsrain.AllocationId
+      InstanceId: !Ref EC2Tsrain
+
+  SSMManagedRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  SSMInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref SSMManagedRole
+
+  EC2Tsrain:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.12-arm64}}'
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref SSMInstanceProfile
+      SubnetId: !Ref Subnet
+      SecurityGroupIds:
+      - !If [DisableIndividualPorts, !Ref SGAIO, !Ref SGIndividualPorts]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          curl -s -L https://github.com/spearmin10/tsrain-standalone/blob/main/ec2-al2023/install/install.sh?raw=true | sudo TSRAIN_MAILBOX_PASSWORD="${InitialPassword}" bash
+      Tags:
+      - Key: Name
+        Value: TSRAIN Email Service
+      - Key: service-name
+        Value: tsrain
+
+  SGAIO:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: tsrain-aio
+      GroupDescription: Run All Services on Port 443
+      VpcId: !GetAtt VpcLookup.VpcId
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: 0.0.0.0/0
+        Description: "Run All Services on Port 443"
+      Tags:
+      - Key: service-name
+        Value: tsrain
+
+  SGIndividualPorts:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: tsrain-individual-services
+      GroupDescription: Individual service ports
+      VpcId: !GetAtt VpcLookup.VpcId
+      SecurityGroupIngress:
+      # https
+      - IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: 0.0.0.0/0
+        Description: "WebMail Frontend (HTTPS)"
+      # http
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+        Description: "WebMail Frontend (HTTP)"
+      # smtp
+      - IpProtocol: tcp
+        FromPort: 25
+        ToPort: 25
+        CidrIp: 0.0.0.0/0
+        Description: "SMTP"
+      # smtps
+      - IpProtocol: tcp
+        FromPort: 465
+        ToPort: 465
+        CidrIp: 0.0.0.0/0
+        Description: "SMTP (SSL)"
+      # imap
+      - IpProtocol: tcp
+        FromPort: 143
+        ToPort: 143
+        CidrIp: 0.0.0.0/0
+        Description: "IMAP"
+      # imaps
+      - IpProtocol: tcp
+        FromPort: 993
+        ToPort: 993
+        CidrIp: 0.0.0.0/0
+        Description: "IMAP (SSL)"
+      Tags:
+      - Key: service-name
+        Value: tsrain
+
+Outputs:
+  EC2PublicIP:
+    Value: !Ref EIPTsrain
+    Description: "The public IP address of the TSRAIN Email Service"
+    Export:
+      Name: !Sub "${AWS::StackName}-TSRAIN-IP"
