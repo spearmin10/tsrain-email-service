@@ -61,27 +61,27 @@ Resources:
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
       Policies:
-        - PolicyName: DescribeSubnetsPolicy
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action: ec2:DescribeSubnets
-                Resource: "*"
-              - Effect: Allow
-                Action: logs:CreateLogGroup
-                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
-              - Effect: Allow
-                Action: logs:CreateLogStream
-                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*"
-              - Effect: Allow
-                Action: logs:PutLogEvents
-                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*"
+      - PolicyName: DescribeSubnetsPolicy
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+          - Effect: Allow
+            Action: ec2:DescribeSubnets
+            Resource: "*"
+          - Effect: Allow
+            Action: logs:CreateLogGroup
+            Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+          - Effect: Allow
+            Action: logs:CreateLogStream
+            Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*"
+          - Effect: Allow
+            Action: logs:PutLogEvents
+            Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*"
 
   VpcLookupFunction:
     Type: AWS::Lambda::Function
@@ -119,7 +119,7 @@ Resources:
       Domain: vpc
       Tags:
       - Key: Name
-        Value: "TSRAIN Email Service EIP"
+        Value: !Sub "TSRAIN Email Service EIP/${AWS::StackName}"
 
   EIPAssocTsrain:
     Type: AWS::EC2::EIPAssociation
@@ -133,18 +133,18 @@ Resources:
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
-          - Effect: Allow
-            Principal:
-              Service: ec2.amazonaws.com
-            Action: sts:AssumeRole
+        - Effect: Allow
+          Principal:
+            Service: ec2.amazonaws.com
+          Action: sts:AssumeRole
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
 
   SSMInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
       Roles:
-        - !Ref SSMManagedRole
+      - !Ref SSMManagedRole
 
   EC2Tsrain:
     Type: AWS::EC2::Instance
@@ -161,14 +161,14 @@ Resources:
           curl -s -L https://github.com/spearmin10/tsrain-email-service/blob/main/ec2-al2023/install/install.sh?raw=true | sudo TSRAIN_MAILBOX_PASSWORD="${InitialPassword}" bash
       Tags:
       - Key: Name
-        Value: TSRAIN Email Service
+        Value: !Sub "TSRAIN Email Service/${AWS::StackName}"
       - Key: service-name
         Value: tsrain
 
   SGAIO:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: tsrain-aio
+      GroupName: !Sub "tsrain-aio/${AWS::StackName}"
       GroupDescription: Run All Services on Port 443
       VpcId: !GetAtt VpcLookup.VpcId
       SecurityGroupIngress:
@@ -184,7 +184,7 @@ Resources:
   SGIndividualPorts:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: tsrain-individual-services
+      GroupName: !Sub "tsrain-individual-services/${AWS::StackName}"
       GroupDescription: Individual service ports
       VpcId: !GetAtt VpcLookup.VpcId
       SecurityGroupIngress:
@@ -234,4 +234,3 @@ Outputs:
     Description: "The public IP address of the TSRAIN Email Service"
     Export:
       Name: !Sub "${AWS::StackName}-TSRAIN-IP"
-
