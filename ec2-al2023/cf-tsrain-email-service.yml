@@ -33,7 +33,6 @@ Metadata:
         default: "Amazon EC2 Configuration"
       Parameters:
       - InstanceType
-      - LatestAmiId
       - AllowIndividualPorts
     - Label:
         default: "TSRAIN Email Service Configuration"
@@ -234,3 +233,4 @@ Outputs:
     Description: "The public IP address of the TSRAIN Email Service"
     Export:
       Name: !Sub "${AWS::StackName}-TSRAIN-IP"
+
