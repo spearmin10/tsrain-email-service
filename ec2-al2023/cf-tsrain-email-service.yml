@@ -43,8 +43,6 @@ Metadata:
         default: "Target Public Subnet"
       InstanceType:
         default: "EC2 Instance Type"
-      LatestAmiId:
-        default: "Base Amazon Machine Image (AMI)"
       DisableIndividualPorts:
         default: "Diable Standard Email Ports (25, 80, 143, etc.)"
       InitialPassword:
@@ -233,4 +231,5 @@ Outputs:
     Description: "The public IP address of the TSRAIN Email Service"
     Export:
       Name: !Sub "${AWS::StackName}-TSRAIN-IP"
+
 
